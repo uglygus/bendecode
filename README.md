@@ -1,7 +1,9 @@
-## BitTorrent Bencode (B-encode) Decoder
+
+### BitTorrent Bencode (B-encode) Decoder
+
+based on <https://github.com/ShriramShagri/Bencode>
 
 Simple bencode decoder in python!
-
 Supports .torrent files only
 
 > How to get it running
