@@ -6,6 +6,7 @@ A Simple BitTorrent "bencode" decoder using pathlib and byte-safe decoding.
 import argparse
 import hashlib
 import json
+from datetime import datetime
 from pathlib import Path
 
 
@@ -167,43 +168,49 @@ def main(file_data, file_path: Path, print_json=False, list_files=False):
 
     torrent = decode(file_data)
 
-    if not print_json:
-        # print("type(torrent):", type(torrent))
-        # print("torrent:", torrent)
-
-        print(f"{'torrent file':>15} : {file_path}")
-
-        for k, v in torrent.items():
-            k = mydecode(k)
-            v = mydecode(v)
-
-            if isinstance(v, dict):
-                print(f"{k:>15} : ")
-                for ki, vi in v.items():
-                    ki = mydecode(ki)
-                    # print("ki=>>=", ki)
-                    if ki == "files":
-                        print(f"{ki:>25} : ")
-                        print_files(vi)
-
-                    elif ki == "pieces":
-                        print(f"{ki:>25} : SKIPPING (too long, too ugly)")
-                    # print("skipping pieces")
-                    else:
-                        vi = mydecode(vi)
-                        print(f"{ki:>25} : {vi}")
-            else:
-                print(f"{k:>15} : {v}")
-
     if b"info" in torrent:
-        info_dict = torrent[b"info"]
-        info_encoded = encode(info_dict)
-        torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
+        # info_dict = torrent[b"info"]
+        # info_encoded = encode(info_dict)
+        # torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
 
-        # Prefer name.utf-8 or fallback
-        name = info_dict.get(b"name.utf-8") or info_dict.get(b"name")
-        if isinstance(name, bytes):
-            name = name.decode("utf-8", errors="replace")
+        # # Prefer name.utf-8 or fallback
+        # name = info_dict.get(b"name.utf-8") or info_dict.get(b"name")
+        # if isinstance(name, bytes):
+        #     name = name.decode("utf-8", errors="replace")
+
+        if not print_json:
+            # print("type(torrent):", type(torrent))
+            # print("torrent:", torrent)
+
+            print(f"{'torrent file':>15} : {file_path}")
+
+            for k, v in torrent.items():
+                k = mydecode(k)
+                v = mydecode(v)
+
+                if isinstance(v, dict):
+                    print(f"{k:>15} : ")
+                    for ki, vi in v.items():
+                        ki = mydecode(ki)
+                        # print("ki==", ki, "==")
+
+                        if ki == "files":
+                            print(f"{ki:>25} : ")
+                            print_files(vi)
+
+                        elif ki == "pieces":
+                            print(f"{ki:>25} : SKIPPING (too long, too ugly)")
+                        # print("skipping pieces")
+                        else:
+                            vi = mydecode(vi)
+                            print(f"{ki:>25} : {vi}")
+                else:
+
+                    if k == "creation date":
+                        # print("hi mom")
+                        v = datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M:%S")
+
+                    print(f"{k:>15} : {v}")
 
         if print_json:
 
