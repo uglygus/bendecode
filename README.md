@@ -11,14 +11,15 @@ This tool extracts metadata from torrent files and optionally prints a structure
 * Displays top-level names and optionally lists files inside folders
 * Outputs JSON-formatted torrent metadata with `-j` flag
 * Handles non-UTF8 filenames gracefully
-* Ignores OS-generated junk files like `.DS_Store`, `Thumbs.db`, etc.
+* Ignores OS-generated junk files like `.DS_Store`, `Thumbs.db`, etc
+* Invalid torrent files will raise a helpful error
 
 ---
 
 ### Usage
 
 ```bash
-python decoder.py [options] <path/to/file.torrent>
+python bendecoder.py [options] <path/to/file.torrent>
 ```
 
 You can pass one or more `.torrent` or `.torrent.added` files.
@@ -26,7 +27,7 @@ You can pass one or more `.torrent` or `.torrent.added` files.
 #### Basic Example
 
 ```bash
-python decoder.py some-movie.torrent
+python bendecoder.py some-movie.torrent
 ```
 
 **Output:**
@@ -38,33 +39,33 @@ Some.Movie.2021.mkv
 #### Multi-file torrent example
 
 ```bash
-python decoder.py some-multifile.torrent
+python bendecoder.py Terminator.torrent
 ```
 
 **Output:**
 
 ```
-Some.Folder.Name/
+Terminator/
 ```
 
 #### With `-l` flag: list files in folder
 
 ```bash
-python decoder.py -l some-multifile.torrent
+python bendecoder.py -l Terminator.torrent
 ```
 
 **Output:**
 
 ```
-Some.Folder.Name/
-    SomeMovie.avi
-    SomeMovie.srt
+Terminator/
+    Terminator.avi
+    Terminator.srt
 ```
 
 #### With `-j` flag: print decoded torrent as JSON
 
 ```bash
-python decoder.py -j some-movie.torrent
+python bendecoder.py -j some-movie.torrent
 ```
 
 **Output:**
@@ -78,14 +79,6 @@ python decoder.py -j some-movie.torrent
 | ------ | ----------------------------------------------- |
 | `-j`   | Output decoded torrent contents as JSON         |
 | `-l`   | List files inside folders (multi-file torrents) |
-
----
-
-### Notes
-
-* The decoder will automatically handle `.torrent` and `.torrent.added` files.
-* It will skip system junk files like `.DS_Store`, `desktop.ini`, `Thumbs.db`, etc.
-* Invalid torrent files will raise a helpful error.
 
 ---
 
