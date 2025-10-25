@@ -131,36 +131,18 @@ def mydecode(s):
 
 
 def print_files(files_list):
-    # if b"files" in info_dict:
-    # # Multi-file torrent (i.e., folder-style)
-    # print("HO. MOMOMO")
-    # print(f"{name}/")
-    # path_str = ""
-    # if list_files:
-    # print("print_files called..")
+
     for file_entry in files_list:
         length = str(file_entry.get(b"length", 0))
         length = length.rjust(35)
         path = file_entry.get(b"path.utf-8") or file_entry.get(b"path")
-        # print("type(path):", type(path))
 
         if isinstance(path, list):
-            # for p in list:
-            # if isinstance(p, bytes):
-            #     p = p.decode("utf-8", errors="replace")
-            #     print("p==", p)
-
             for p in path:
                 if isinstance(p, bytes):
-                    # print("  decoding below-->")
                     p = p.decode("utf-8", errors="replace")
                 p = str(p)
                 oneline = f"{length}   {p}"
-
-            # path_str = "/".join(
-            #     p.decode("utf-8", errors="replace") if isinstance(p, bytes) else str(p)
-            #     for p in path
-            # )
             print(f"{oneline}")
 
 
@@ -169,30 +151,28 @@ def main(file_data, file_path: Path, print_json=False, list_files=False):
     torrent = decode(file_data)
 
     if b"info" in torrent:
-        # info_dict = torrent[b"info"]
-        # info_encoded = encode(info_dict)
-        # torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
-
-        # # Prefer name.utf-8 or fallback
-        # name = info_dict.get(b"name.utf-8") or info_dict.get(b"name")
-        # if isinstance(name, bytes):
-        #     name = name.decode("utf-8", errors="replace")
+        info_dict = torrent[b"info"]
+        info_encoded = encode(info_dict)
+        torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
 
         if not print_json:
-            # print("type(torrent):", type(torrent))
-            # print("torrent:", torrent)
-
             print(f"{'torrent file':>15} : {file_path}")
 
             for k, v in torrent.items():
                 k = mydecode(k)
                 v = mydecode(v)
 
-                if isinstance(v, dict):
+                # this is for announce-list which is a list of lists ( will prob fail on other lists )
+                if isinstance(v, list):
+                    print(f"{k:>15} : ")
+                    for vi in v:
+                        vi = mydecode(vi[0])
+                        print(f"{'':>20}{vi}")
+
+                elif isinstance(v, dict):
                     print(f"{k:>15} : ")
                     for ki, vi in v.items():
                         ki = mydecode(ki)
-                        # print("ki==", ki, "==")
 
                         if ki == "files":
                             print(f"{ki:>25} : ")
@@ -200,20 +180,15 @@ def main(file_data, file_path: Path, print_json=False, list_files=False):
 
                         elif ki == "pieces":
                             print(f"{ki:>25} : SKIPPING (too long, too ugly)")
-                        # print("skipping pieces")
                         else:
                             vi = mydecode(vi)
                             print(f"{ki:>25} : {vi}")
                 else:
-
                     if k == "creation date":
-                        # print("hi mom")
                         v = datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M:%S")
-
                     print(f"{k:>15} : {v}")
 
-        if print_json:
-
+        else:
             def decode_keys(obj):
                 if isinstance(obj, dict):
                     return {
@@ -240,15 +215,12 @@ if __name__ == "__main__":
     parser.add_argument(
         "-j", "--json", action="store_true", help="Print the decoded torrent file as JSON"
     )
-    # parser.add_argument(
-    #     "-l", "--list-files", action="store_true", help="List files inside folder-style torrents"
-    # )
+
     args = parser.parse_args()
 
     for path in args.paths:
         if path.suffix in {".torrent", ".added"} and path.is_file():
             try:
-                # print(f"{'torrent file':>15} : {path}")
                 main(path.read_bytes(), path, print_json=args.json)  # , list_files=args.list_files)
             except (InvalidFileException, SyntaxError, ValueError) as e:
                 print(f"Error processing {path.name}: {e}")
