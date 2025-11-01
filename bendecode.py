@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 A Simple BitTorrent "bencode" decoder using pathlib and byte-safe decoding.
+Supports optional strict mode for spec compliance.
 """
 
 import argparse
@@ -11,24 +12,21 @@ from pathlib import Path
 
 
 class InvalidFileException(Exception):
-    def __init__(self, message="No .torrent file found! Please check path"):
-        super().__init__(message)
+    """Raised when the input file is not a valid .torrent file."""
 
 
 def encode(obj):
     if isinstance(obj, int):
         return b"i%de" % obj
-    elif isinstance(obj, bytes):
+    if isinstance(obj, bytes):
         return b"%d:%s" % (len(obj), obj)
-    elif isinstance(obj, str):
+    if isinstance(obj, str):
         return encode(obj.encode())
-    elif isinstance(obj, list):
-        return b"l" + b"".join(encode(i) for i in obj) + b"e"
-    elif isinstance(obj, dict):
-        items = sorted(obj.items())
-        return b"d" + b"".join(encode(k) + encode(v) for k, v in items) + b"e"
-    else:
-        raise TypeError(f"Unsupported type: {type(obj)}")
+    if isinstance(obj, list):
+        return b"l" + b"".join(map(encode, obj)) + b"e"
+    if isinstance(obj, dict):
+        return b"d" + b"".join(encode(k) + encode(v) for k, v in sorted(obj.items())) + b"e"
+    raise TypeError(f"Unsupported type: {type(obj)}")
 
 
 def tokenize(data: bytes):
@@ -42,187 +40,160 @@ def tokenize(data: bytes):
             if (
                 not number
                 or number == b"-"
-                or number.lstrip(b"-").startswith(b"0")
-                and len(number.lstrip(b"-")) > 1
+                or (number.lstrip(b"-").startswith(b"0") and len(number.lstrip(b"-")) > 1)
             ):
                 raise SyntaxError(f"Invalid integer value: {number}")
-            yield b"i"
-            yield number
-            yield b"e"
+            yield from (b"i", number, b"e")
             i = end + 1
-        elif char == b"l" or char == b"d" or char == b"e":
+        elif char in (b"l", b"d", b"e"):
             yield char
             i += 1
         elif b"0" <= char <= b"9":
             colon = data.index(b":", i)
-            length_bytes = data[i:colon]
-            if not length_bytes.isdigit():
-                raise SyntaxError(f"Invalid string length prefix: {length_bytes}")
-            length = int(length_bytes)
-            start = colon + 1
-            end = start + length
+            length = int(data[i:colon])
+            start, end = colon + 1, colon + 1 + length
             if end > len(data):
                 raise SyntaxError("Unexpected end of data in string")
-            yield b"s"
-            yield data[start:end]
+            yield from (b"s", data[start:end])
             i = end
         else:
-            raise SyntaxError(f"Unexpected character: {char} at byte {i}")
+            raise SyntaxError(f"Unexpected character: {char!r} at byte {i}")
 
 
-def decode_item(next_token, token):
+def decode_item(next_token, token, strict=False):
     if token == b"i":
         value = int(next_token())
         if next_token() != b"e":
             raise ValueError("Invalid integer termination")
         return value
-    elif token == b"s":
+    if token == b"s":
         return next_token()
-    elif token == b"l":
+    if token == b"l":
         result = []
-        token = next_token()
-        while token != b"e":
-            result.append(decode_item(next_token, token))
-            token = next_token()
+        while (token := next_token()) != b"e":
+            result.append(decode_item(next_token, token, strict))
         return result
-    elif token == b"d":
+    if token == b"d":
         result = {}
-        token = next_token()
-        while token != b"e":
-            key = decode_item(next_token, token)
-            value = decode_item(next_token, next_token())
-            result[key] = value
-            token = next_token()
+        while (token := next_token()) != b"e":
+            key = decode_item(next_token, token, strict)
+            if strict and not isinstance(key, bytes):
+                raise TypeError(f"Invalid dict key type {type(key).__name__}, expected bytes")
+            if key in result:
+                raise ValueError(f"Duplicate key in dictionary: {key!r}")
+            result[key] = decode_item(next_token, next_token(), strict)
         return result
-    else:
-        raise ValueError(f"Unexpected token: {token}")
+    raise ValueError(f"Unexpected token: {token}")
 
 
-def decode(data: bytes):
+def decode(data: bytes, strict=False):
     tokens = tokenize(data)
-    result = decode_item(tokens.__next__, next(tokens))
-    for _ in tokens:
+    result = decode_item(tokens.__next__, next(tokens), strict)
+    try:
+        next(tokens)
         raise SyntaxError("Trailing data after valid bencode")
+    except StopIteration:
+        pass
     return result
-
-
-def convert_bytes(obj):
-    if isinstance(obj, dict):
-        return {convert_bytes(k): convert_bytes(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [convert_bytes(i) for i in obj]
-    elif isinstance(obj, bytes):
-        try:
-            return obj.decode("utf-8")
-        except UnicodeDecodeError:
-            return obj.decode("latin1")  # fallback
-    else:
-        return obj
 
 
 def mydecode(s):
     if isinstance(s, bytes):
         try:
-            s = s.decode("utf-8")
+            return s.decode("utf-8")
         except UnicodeDecodeError:
-            print("unicode error decoding: ", s)
-            pass
+            return s.decode("latin1", errors="replace")
     return s
 
 
 def print_files(files_list):
-
     for file_entry in files_list:
-        length = str(file_entry.get(b"length", 0))
-        length = length.rjust(35)
+        length = str(file_entry.get(b"length", 0)).rjust(35)
         path = file_entry.get(b"path.utf-8") or file_entry.get(b"path")
 
-        if isinstance(path, list):
-            for p in path:
-                if isinstance(p, bytes):
-                    p = p.decode("utf-8", errors="replace")
-                p = str(p)
-                oneline = f"{length}   {p}"
-            print(f"{oneline}")
+        if not isinstance(path, list):
+            print(f"Expected list but got {type(path).__name__}")
+            continue
+
+        parts = [
+            p.decode("utf-8", errors="replace") if isinstance(p, bytes) else str(p) for p in path
+        ]
+        print(f"{length} {'/'.join(parts)}")
 
 
-def main(file_data, file_path: Path, print_json=False, list_files=False):
+def decode_keys(obj):
+    """Recursively decode all dict keys and values into str for JSON output."""
+    if isinstance(obj, dict):
+        return {
+            (k.decode("utf-8", "replace") if isinstance(k, bytes) else k): decode_keys(v)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [decode_keys(i) for i in obj]
+    if isinstance(obj, bytes):
+        return obj.decode("utf-8", "replace")
+    return obj
 
-    torrent = decode(file_data)
 
-    if b"info" in torrent:
-        info_dict = torrent[b"info"]
-        info_encoded = encode(info_dict)
-        torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
+def main(file_data: bytes, file_path: Path, print_json=False, strict=False):
+    torrent = decode(file_data, strict=strict)
 
-        if not print_json:
-            print(f"{'torrent file':>15} : {file_path}")
+    if b"info" not in torrent:
+        raise InvalidFileException(
+            "No 'info' dictionary found in .torrent file. Is it a valid torrent?"
+        )
 
-            for k, v in torrent.items():
-                k = mydecode(k)
-                v = mydecode(v)
+    info_dict = torrent[b"info"]
+    info_encoded = encode(info_dict)
+    torrent["info_hash"] = hashlib.sha1(info_encoded).hexdigest()
 
-                # this is for announce-list which is a list of lists ( will prob fail on other lists )
-                if isinstance(v, list):
-                    print(f"{k:>15} : ")
-                    for vi in v:
-                        vi = mydecode(vi[0])
-                        print(f"{'':>20}{vi}")
+    if print_json:
+        print(json.dumps(decode_keys(torrent), indent=4, sort_keys=True))
+        return
 
-                elif isinstance(v, dict):
-                    print(f"{k:>15} : ")
-                    for ki, vi in v.items():
-                        ki = mydecode(ki)
+    print(f"{'torrent file':>15} : {file_path}")
+    for k, v in torrent.items():
+        k_str, v = mydecode(k), mydecode(v)
 
-                        if ki == "files":
-                            print(f"{ki:>25} : ")
-                            print_files(vi)
-
-                        elif ki == "pieces":
-                            print(f"{ki:>25} : SKIPPING (too long, too ugly)")
-                        else:
-                            vi = mydecode(vi)
-                            print(f"{ki:>25} : {vi}")
+        if isinstance(v, list):
+            print(f"{k_str:>15} : ")
+            for vi in v:
+                print(f"{'':>20}{mydecode(vi[0])}")
+        elif isinstance(v, dict):
+            print(f"{k_str:>15} : ")
+            for ki, vi in v.items():
+                ki = mydecode(ki)
+                if ki == "pieces":
+                    print(f"{ki:>25} : SKIPPING (too long)")
+                elif ki == "files":
+                    print(f"{ki:>25} : ")
+                    print_files(vi)
                 else:
-                    if k == "creation date":
-                        v = datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M:%S")
-                    print(f"{k:>15} : {v}")
-
+                    print(f"{ki:>25} : {mydecode(vi)}")
         else:
-            def decode_keys(obj):
-                if isinstance(obj, dict):
-                    return {
-                        (k.decode("utf-8", "replace") if isinstance(k, bytes) else k): decode_keys(
-                            v
-                        )
-                        for k, v in obj.items()
-                    }
-                elif isinstance(obj, list):
-                    return [decode_keys(i) for i in obj]
-                elif isinstance(obj, bytes):
-                    return obj.decode("utf-8", "replace")
-                else:
-                    return obj
-
-            print(json.dumps(decode_keys(torrent), indent=4, sort_keys=True))
-    else:
-        raise InvalidFileException("No 'info' dictionary found in .torrent file.")
+            if k_str == "creation date":
+                v = datetime.fromtimestamp(v).strftime("%Y-%m-%d %H:%M:%S")
+            print(f"{k_str:>15} : {v}")
+    print()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Decode and inspect .torrent files.")
-    parser.add_argument("paths", type=Path, nargs="+", help="One or more paths to .torrent files")
+    parser.add_argument("path", type=Path, nargs="+", help="One or more .torrent files to inspect")
+    parser.add_argument("-j", "--json", action="store_true", help="Print decoded torrent as JSON")
     parser.add_argument(
-        "-j", "--json", action="store_true", help="Print the decoded torrent file as JSON"
+        "--strict",
+        action="store_true",
+        help="Enable strict bencode validation (keys must be bytes)",
     )
 
     args = parser.parse_args()
 
-    for path in args.paths:
-        if path.suffix in {".torrent", ".added"} and path.is_file():
+    for path in args.path:
+        if path.is_file() and path.suffix in {".torrent", ".added"}:
             try:
-                main(path.read_bytes(), path, print_json=args.json)  # , list_files=args.list_files)
-            except (InvalidFileException, SyntaxError, ValueError) as e:
+                main(path.read_bytes(), path, print_json=args.json, strict=args.strict)
+            except (InvalidFileException, SyntaxError, ValueError, TypeError) as e:
                 print(f"Error processing {path.name}: {e}")
         else:
             print(f"Skipping invalid file: {path}")

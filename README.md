@@ -11,33 +11,40 @@ This tool extracts metadata from torrent files and optionally prints a structure
 * Displays top-level names and optionally lists files inside folders
 * Outputs JSON-formatted torrent metadata with `-j` flag
 * Handles non-UTF8 filenames gracefully
-* Ignores OS-generated junk files like `.DS_Store`, `Thumbs.db`, etc
-* Invalid torrent files will raise a helpful error
 
 ---
 
 ### Usage
 
 ```bash
-usage: bendecode.py [-h] [-j] paths [paths ...]
+usage: bendecode.py [-h] [-j] [--strict] path [path ...]
 
 Decode and inspect .torrent files.
 
 positional arguments:
-  paths       One or more paths to .torrent files
+  path        One or more .torrent files to inspect
 
 options:
   -h, --help  show this help message and exit
-  -j, --json  Print the decoded torrent file as JSON
+  -j, --json  Print decoded torrent as JSON
+  --strict    Enable strict bencode validation (keys must be bytes)
 ```
+
+
+#### --strict mode
+Key type check - Enforces all dictionary keys are bytes
+Detects duplicate dictionary keys, raises ValueError
+Trailing data detecetd. Ensures no bytes follow a valid structure
+Catches non-UTF8 bytes early, uses fallback
+Clear error messages indicat on where structure broke
 
 You can pass one or more `.torrent` or `.torrent.added` files.
 
 #### Example
 
 ```bash
-➜  bendecode git:(master) ✗ python3 ./bendecode.py  "The Terminator (1984) 1080p BRRip x264 -YTS.torrent"
-   torrent file : The Terminator (1984) 1080p BRRip x264 -YTS.torrent
+➜  python3 ./bendecode.py  "The Terminator (1984) 1080p BRRip x264 -YTS.torrent"
+    torrent file : The Terminator (1984) 1080p BRRip x264 -YTS.torrent
        announce : udp://open.demonii.com:1337
   announce-list :
                     udp://open.demonii.com:1337
